@@ -134,3 +134,7 @@ app.get("/api/glasses/nearby-devices", (_req, res) => {
     { name: "R1 Ring", type: "ble", rssi: -30 },
   ]);
 });
+
+// ─── Positional Awareness Routes ───
+import positionalRouter from "./positional.js";
+app.use("/api/glasses/positional", positionalRouter);
