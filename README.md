@@ -1,71 +1,61 @@
 # Even Realities × OpenClaw
 
-Smart glasses + AI agent integration. Plugins for **Even Realities G2** glasses and **R1** ring powered by [OpenClaw](https://github.com/openclaw/openclaw).
+Custom apps for the **Even Realities G2** smart glasses and **R1 ring**, integrated with **OpenClaw** AI agents.
 
-## Plugins
+## Apps
 
-| Plugin | Description | Status |
-|--------|-------------|--------|
-| **telegram-hud** | Read & reply to Telegram messages on glasses. Voice reply via ring tap → Whisper → send. | 🔧 Building |
-| **agent-notifications** | Push OpenClaw agent alerts to HUD (critical/high/normal priority). | 📋 Planned |
-| **voice-command** | Ring tap → speak → Whisper → dispatch to agent → result on HUD. | 📋 Planned |
-| **sms** | Send/receive texts via Twilio. Voice dictation for replies. | 🔧 Building |
-| **email** | Gmail inbox on HUD. Dictate emails, quick reply. | 🔧 Building |
-| **calendar** | Google Calendar — next events + "meeting in X min" widget. | 🔧 Building |
-| **dexcom** | Dexcom CGM glucose readings on HUD. High/low/urgent alerts. | 🔧 Building |
-| **location** | Share GPS with agents. Geofence triggers. Context-aware AI. | 🔧 Building |
-| **data-dashboard** | Rotating HUD widget: stock prices, signals, metrics. | 📋 Planned |
-| **teleprompter** | Push notes/talking points to display. | 📋 Planned |
+| App | Description | Status |
+|-----|-------------|--------|
+| [Telegram HUD](apps/telegram-hud/) | Send/receive Telegram messages on your glasses | 🚧 In Progress |
+| [OpenClaw Dashboard](apps/openclaw-hud/) | Agent alerts, cron status, notifications | 📋 Planned |
+| [Calendar Glance](apps/calendar-glance/) | Next meeting at a glance | 📋 Planned |
+| [Voice Commander](apps/voice-commander/) | Voice → OpenClaw → action → display | 📋 Planned |
 
 ## Architecture
 
 ```
-┌─────────────┐     BLE      ┌──────────────┐    WebView    ┌──────────────────┐
-│  G2 Glasses  │◄────────────►│  Even iPhone  │◄────────────►│  Plugin Server   │
-│  (display +  │              │  App          │              │  (this repo)     │
-│   mic + R1)  │              └──────────────┘              │                  │
-└─────────────┘                                             │  ┌────────────┐  │
-                                                            │  │ Telegram   │  │
-                                                            │  │ Bot API    │  │
-                                                            │  ├────────────┤  │
-                                                            │  │ OpenClaw   │  │
-                                                            │  │ Agents     │  │
-                                                            │  ├────────────┤  │
-                                                            │  │ Whisper    │  │
-                                                            │  │ STT        │  │
-                                                            │  └────────────┘  │
-                                                            └──────────────────┘
+G2 Glasses ←BLE→ Even App (Flutter) ←SDK Bridge→ EvenHub Web App ←HTTP→ Backend ←→ OpenClaw Gateway
+     ↕
+  R1 Ring
 ```
 
-## Prerequisites
+**EvenHub SDK** — apps are web apps (HTML/CSS/JS) running in a WebView inside the Even mobile app. The SDK provides a TypeScript bridge for display, input, and audio.
 
-- Even Realities G2 glasses (paired via Even app)
-- R1 ring (optional, for gesture input)
-- iPhone with Even Realities app
-- Node.js ≥ 20
+## Tech Stack
+
+- `@evenrealities/even_hub_sdk` v0.0.7 — TypeScript bridge
+- `@evenrealities/evenhub-cli` v0.1.5 — dev tooling (init, QR sideload, pack)
+- `@evenrealities/evenhub-simulator` v0.4.1 — desktop testing
+- Vite + TypeScript
+- Express backend → OpenClaw Telegram integration
+
+## Display Specs
+- 576×288 monochrome canvas
+- Up to 4 containers/page (text, list, image)
+- Images: 20-200px wide, 20-100px tall, 1-bit
+- Input: TouchBar gestures + R1 ring events
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/mfethe1/even-realities-openclaw.git
-cd even-realities-openclaw
-cp .env.example .env   # Add your API keys
-npm install
-npm run dev
+# Install EvenHub tools
+npm install -g @evenrealities/evenhub-cli @evenrealities/evenhub-simulator
+
+# Run Telegram HUD
+cd apps/telegram-hud && npm install && npm run dev
+
+# Test in simulator
+evenhub-simulator http://localhost:5173
+
+# Or sideload to glasses via QR
+evenhub qr -p 5173  # scan from Even Hub app
 ```
 
-Open the Even app on iPhone → scan QR code (same Wi-Fi) → plugin loads on glasses.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for full deployment guide.
 
-## Deployment
+## Team
 
-1. **Dev (sideload):** `npm run dev` → QR scan from Even app (same network)
-2. **Production:** `npm run pack` → `.ehpk` file → submit to Even Hub
-
-## Display Specs
-
-- 576 × 288 px per eye, 4-bit grayscale (16 green shades)
-- Up to 4 containers per page (Text, List, Image)
-- Input: tap, swipe, R1 ring gestures
+Built by the OpenClaw agent team (Macklemore, Rosie, Winnie, Lenny) + Michael.
 
 ## License
 
