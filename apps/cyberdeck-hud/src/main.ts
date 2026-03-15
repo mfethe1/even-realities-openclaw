@@ -5,12 +5,16 @@ import {
   drawPOIPanel,
   drawAircraftPanel,
   drawRadarPanel,
+  drawAgentPanel,
+  drawMessagesPanel,
   type WeatherData,
   type AirQuality,
   type POI,
   type Aircraft,
   type LocationInfo,
   type SpatialData,
+  type AgentState,
+  type TelegramMessage,
 } from "./panels.js";
 
 // ─── G2 Display Constants ───
@@ -44,18 +48,20 @@ interface PositionalData {
   location?: LocationInfo;
 }
 
-// Panel indices — RADAR inserted at index 1, others shifted right
-const PANEL_VITALS = 0;
-const PANEL_RADAR = 1;
-const PANEL_SCAN = 2;
-const PANEL_ALERTS = 3;
-const PANEL_WEATHER = 4;
-const PANEL_AIR = 5;
-const PANEL_POI = 6;
-const PANEL_AIRCRAFT = 7;
-const TOTAL_PANELS = 8;
+// ─── Panel indices — AGENT is home/panel 0 ───
+const PANEL_AGENT    = 0;
+const PANEL_MESSAGES = 1;
+const PANEL_VITALS   = 2;
+const PANEL_RADAR    = 3;
+const PANEL_SCAN     = 4;
+const PANEL_ALERTS   = 5;
+const PANEL_WEATHER  = 6;
+const PANEL_AIR      = 7;
+const PANEL_POI      = 8;
+const PANEL_AIRCRAFT = 9;
+const TOTAL_PANELS   = 10;
 
-const PANEL_LABELS = ["VITALS", "RADAR", "SCAN", "ALERTS", "WEATHER", "AIR", "POI", "AIRCRAFT"];
+const PANEL_LABELS = ["AGENT", "MESSAGES", "VITALS", "RADAR", "SCAN", "ALERTS", "WEATHER", "AIR", "POI", "AIRCRAFT"];
 
 interface HUDState {
   vitals: Vitals;
@@ -68,6 +74,9 @@ interface HUDState {
   spatial: SpatialData;
   webHeadingOverride: number | null; // A/D key simulated heading in web mode
   webMode: boolean; // true when Even Hub bridge is not available
+  agent: AgentState;
+  messages: TelegramMessage[];
+  animFrame: number; // animation tick counter
 }
 
 let bridge: EvenAppBridge | null = null;
@@ -84,11 +93,22 @@ let state: HUDState = {
   alerts: [],
   time: "",
   battery: 100,
-  activePanel: PANEL_VITALS,
+  activePanel: PANEL_AGENT,
   positional: {},
   spatial: { heading: 0, devices: [] },
   webHeadingOverride: null,
   webMode: true,
+  agent: {
+    state: "ready",
+    lastResponse: "JARVIS online. All systems nominal. Ready for your command.",
+    lastQuery: "",
+    activeAgent: "macklemore",
+    teamStatus: { macklemore: "active", rosie: "active", winnie: "idle", lenny: "active" },
+    pendingAlerts: 0,
+    timestamp: Date.now(),
+  },
+  messages: [],
+  animFrame: 0,
 };
 
 // ─── Canvas Setup ───
@@ -132,8 +152,17 @@ function drawHUD() {
   ctx.lineTo(DISPLAY_W - 8, 22);
   ctx.stroke();
 
+  state.animFrame++;
+
   // Main Content
   switch (state.activePanel) {
+    case PANEL_AGENT:
+      // Agent panel draws its own bottom bar
+      drawAgentPanel(ctx, state.agent, DISPLAY_W, DISPLAY_H, 22, state.animFrame);
+      return; // skip drawNavBar — agent panel has its own
+    case PANEL_MESSAGES:
+      drawMessagesPanel(ctx, state.messages, DISPLAY_W, 22);
+      break;
     case PANEL_VITALS:
       drawVitalsPanel();
       break;
@@ -407,7 +436,8 @@ async function pushToGlasses() {
   const b64 = btoa(String.fromCharCode(...rawData));
 
   try {
-    bridge.updateImageRawData(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (bridge as any).updateImageRawData(
       JSON.stringify({
         name: "hud",
         width: DISPLAY_W,
@@ -418,7 +448,8 @@ async function pushToGlasses() {
   } catch (e) {
     console.error("[CyberDeck] Image push failed:", e);
     const textSummary = `BG:${state.vitals.glucose}${state.vitals.glucoseTrend === "Flat" ? "→" : "↕"} HR:${state.vitals.heartRate} O2:${state.vitals.spo2}%\nDevices:${state.devices.length} nearby\n${state.alerts[0] || "No alerts"}`;
-    bridge.rebuildPageContainer(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (bridge as any).rebuildPageContainer(
       JSON.stringify([
         {
           type: "text",
@@ -452,13 +483,117 @@ function renderWebPreview() {
   }
 }
 
+// ─── Agent interaction ───
+let voiceActive = false;
+const mockTextQueries = [
+  "What's next on my schedule?",
+  "Brief me on my health",
+  "Read my messages",
+  "What's the weather?",
+  "Give me a status update",
+];
+let mockQueryIdx = 0;
+
+async function startListening() {
+  if (voiceActive) return;
+  voiceActive = true;
+  state.agent = { ...state.agent, state: "listening" };
+  pushToGlasses();
+
+  // In bridge mode: start recording via bridge; in web mode: simulate
+  if (bridge) {
+    // Future: bridge.startAudioCapture()
+  }
+}
+
+async function stopListeningAndQuery() {
+  if (!voiceActive) return;
+  voiceActive = false;
+  state.agent = { ...state.agent, state: "thinking" };
+  pushToGlasses();
+
+  try {
+    const res = await fetch(`${API_BASE}/api/glasses/agent-voice-end`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      state.agent = {
+        ...state.agent,
+        state: "ready",
+        lastResponse: data.response || "Done.",
+        lastQuery: data.transcription || "",
+        timestamp: Date.now(),
+      };
+    } else {
+      state.agent = { ...state.agent, state: "ready" };
+    }
+  } catch {
+    state.agent = { ...state.agent, state: "ready" };
+  }
+  pushToGlasses();
+}
+
+async function sendTextQuery(text: string) {
+  state.agent = { ...state.agent, state: "thinking", lastQuery: text };
+  pushToGlasses();
+
+  try {
+    const res = await fetch(`${API_BASE}/api/glasses/agent-query`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, type: "text" }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      state.agent = {
+        ...state.agent,
+        state: "ready",
+        lastResponse: data.response || "Done.",
+        lastQuery: text,
+        timestamp: Date.now(),
+      };
+    } else {
+      state.agent = { ...state.agent, state: "ready" };
+    }
+  } catch {
+    state.agent = { ...state.agent, state: "ready" };
+  }
+  pushToGlasses();
+}
+
+// T key ring tap simulation state
+let tapListenTimer: ReturnType<typeof setTimeout> | null = null;
+
+function simulateRingTap() {
+  if (state.agent.state === "listening") {
+    // Stop listening
+    if (tapListenTimer) clearTimeout(tapListenTimer);
+    tapListenTimer = null;
+    stopListeningAndQuery();
+    return;
+  }
+  if (state.agent.state !== "ready") return;
+
+  // Start listening, auto-stop after 2s → thinking → 1s → response
+  startListening();
+  tapListenTimer = setTimeout(() => {
+    tapListenTimer = null;
+    stopListeningAndQuery();
+  }, 2000);
+}
+
 // ─── Fetch all data from backend ───
 async function fetchAll() {
   try {
-    const [vitalsRes, devicesRes, spatialRes] = await Promise.all([
+    const [vitalsRes, devicesRes, spatialRes, agentRes, messagesRes] = await Promise.all([
       fetch(`${API_BASE}/api/glasses/vitals`).catch(() => null),
       fetch(`${API_BASE}/api/glasses/nearby-devices`).catch(() => null),
       fetch(`${API_BASE}/api/glasses/spatial-scan`).catch(() => null),
+      fetch(`${API_BASE}/api/glasses/agent-state`).catch(() => null),
+      fetch(`${API_BASE}/api/glasses/messages`).catch(() => null),
     ]);
 
     if (vitalsRes?.ok) {
@@ -476,6 +611,14 @@ async function fetchAll() {
     if (spatialRes?.ok) {
       state.spatial = await spatialRes.json();
     }
+    // Only update agent state from backend if not actively interacting
+    if (agentRes?.ok && state.agent.state === "ready") {
+      const agentData = await agentRes.json();
+      state.agent = { ...state.agent, ...agentData };
+    }
+    if (messagesRes?.ok) {
+      state.messages = await messagesRes.json();
+    }
   } catch (e) {
     console.error("[CyberDeck] Fetch failed:", e);
   }
@@ -491,17 +634,33 @@ async function fetchAll() {
 }
 
 // ─── Input Handling (R1 Ring via bridge) ───
+let lastScrollTopTime = 0;
+
 function handleInput(event: any) {
   const type = event?.type || event?.eventType;
   switch (type) {
     case "SCROLL_BOTTOM":
       navigateNext();
       break;
-    case "SCROLL_TOP":
-      navigatePrev();
+    case "SCROLL_TOP": {
+      const now = Date.now();
+      if (now - lastScrollTopTime < 500) {
+        // Double scroll-up = go home (AGENT panel)
+        state.activePanel = PANEL_AGENT;
+        pushToGlasses();
+      } else {
+        navigatePrev();
+      }
+      lastScrollTopTime = now;
       break;
+    }
     case "CLICK":
-      fetchAll();
+      // Ring tap = simulate voice on agent panel
+      if (state.activePanel === PANEL_AGENT) {
+        simulateRingTap();
+      } else {
+        fetchAll();
+      }
       break;
   }
 }
@@ -537,6 +696,13 @@ function setupWebInteractivity() {
       return;
     }
 
+    // T: simulate ring tap (toggles LISTENING on agent panel)
+    if (e.key === "t" || e.key === "T") {
+      e.preventDefault();
+      simulateRingTap();
+      return;
+    }
+
     switch (e.key) {
       case "ArrowRight":
       case "ArrowDown":
@@ -548,10 +714,17 @@ function setupWebInteractivity() {
         e.preventDefault();
         navigatePrev();
         break;
-      case " ":
-      case "Enter":
+      case "Enter": {
         e.preventDefault();
-        fetchAll(); // click = refresh
+        // Cycle through mock text queries
+        const query = mockTextQueries[mockQueryIdx % mockTextQueries.length];
+        mockQueryIdx++;
+        sendTextQuery(query);
+        break;
+      }
+      case " ":
+        e.preventDefault();
+        fetchAll(); // space = refresh
         break;
     }
   });
@@ -627,7 +800,7 @@ function setupWebPreviewDOM() {
   const helpBar = document.createElement("div");
   helpBar.style.cssText =
     "font-size: 10px; color: #444; margin-top: 10px; letter-spacing: 1px;";
-  helpBar.textContent = "← → Arrow keys to switch panels  |  A/D rotate heading (RADAR)  |  Space/Click to refresh  |  Swipe on mobile";
+  helpBar.textContent = "← → panels  |  T = ring tap (voice)  |  Enter = text query  |  A/D = heading (RADAR)  |  Space = refresh";
   appEl.appendChild(helpBar);
 
   // Bridge status indicator
@@ -705,6 +878,17 @@ async function init() {
 
   // Refresh loop: every 5s
   setInterval(fetchAll, 5000);
+
+  // Animation loop for agent panel (listening/thinking animations)
+  function animLoop() {
+    if (state.activePanel === PANEL_AGENT &&
+        (state.agent.state === "listening" || state.agent.state === "thinking")) {
+      drawHUD();
+      renderWebPreview();
+    }
+    requestAnimationFrame(animLoop);
+  }
+  requestAnimationFrame(animLoop);
 }
 
 init().catch(console.error);

@@ -122,7 +122,7 @@ app.get("/api/glasses/glucose", (_req, res) => {
   });
 });
 
-// ─── Agent Communication ───
+// ─── Agent Communication (legacy) ───
 app.post("/api/glasses/agent-message", (req, res) => {
   const { type, user } = req.body;
   console.log(`[Backend] Agent message from ${user}, type: ${type}`);
@@ -139,6 +139,98 @@ app.post("/api/glasses/audio-chunk", (req, res) => {
 
 app.get("/api/glasses/agent-status", (_req, res) => {
   res.json({ status: "Mack:✅ Rosie:✅ Winnie:✅ Lenny:✅" });
+});
+
+// ─── Agent-First: New Agent API ───
+
+// Agent state (mock)
+let agentState = {
+  state: "ready",
+  lastResponse: "All clear. You have a meeting at 2pm. Glucose is 112, stable.",
+  lastQuery: "Brief me",
+  activeAgent: "macklemore",
+  teamStatus: { macklemore: "active", rosie: "active", winnie: "idle", lenny: "active" },
+  pendingAlerts: 0,
+  timestamp: Date.now(),
+};
+
+// Mock response generator
+function mockAgentResponse(text: string): string {
+  const lower = text.toLowerCase();
+  if (lower.includes("next") || lower.includes("schedule")) {
+    const now = new Date();
+    const h = now.getHours();
+    if (h < 9) return "Next: Team Standup at 9:00am. Investor Call at 2:00pm.";
+    if (h < 14) return "Next: Investor Call at 2:00pm. Block ends at 3:00pm.";
+    return "No more events today. Tomorrow: 9am standup.";
+  }
+  if (lower.includes("glucose") || lower.includes("health")) {
+    return `Glucose: ${112 + rand(-5, 5)} mg/dL, stable. HR: ${72 + rand(-3, 3)} bpm. SpO2: 98%. Steps: 4,821.`;
+  }
+  if (lower.includes("message") || lower.includes("read")) {
+    return "2 unread messages. Macklemore: Deployment complete. Michael: Testing the glasses HUD.";
+  }
+  if (lower.includes("weather")) {
+    return "72°F partly cloudy. Wind 8mph SW. UV index 4. Good conditions.";
+  }
+  if (lower.includes("brief") || lower.includes("status")) {
+    return "All clear. Glucose 112, stable. Meeting at 2pm. No alerts. Markets: flat.";
+  }
+  return "I'm here. What do you need?";
+}
+
+// Mock voice transcriptions (cycling)
+const mockTranscriptions = [
+  "What's next on my schedule?",
+  "Brief me on my health",
+  "Read my messages",
+  "What's the weather?",
+  "Give me a status update",
+];
+let mockTranscriptionIdx = 0;
+
+// POST /api/glasses/agent-query
+app.post("/api/glasses/agent-query", (req, res) => {
+  const { text, type } = req.body as { text: string; type: string };
+  console.log(`[Agent] Query (${type}): ${text}`);
+  const response = mockAgentResponse(text || "");
+  agentState = {
+    ...agentState,
+    state: "ready",
+    lastResponse: response,
+    lastQuery: text || "",
+    timestamp: Date.now(),
+  };
+  res.json({ ok: true, response });
+});
+
+// GET /api/glasses/agent-state
+app.get("/api/glasses/agent-state", (_req, res) => {
+  res.json({ ...agentState, timestamp: Date.now() });
+});
+
+// POST /api/glasses/agent-voice  — receive audio chunk
+app.post("/api/glasses/agent-voice", (req, res) => {
+  audioBuffer.push(req.body.audio);
+  agentState = { ...agentState, state: "listening", timestamp: Date.now() };
+  res.json({ ok: true });
+});
+
+// POST /api/glasses/agent-voice-end  — finalize voice capture
+app.post("/api/glasses/agent-voice-end", (_req, res) => {
+  const transcription = mockTranscriptions[mockTranscriptionIdx % mockTranscriptions.length];
+  mockTranscriptionIdx++;
+  const response = mockAgentResponse(transcription);
+  audioBuffer = [];
+  agentState = {
+    ...agentState,
+    state: "ready",
+    lastResponse: response,
+    lastQuery: transcription,
+    timestamp: Date.now(),
+  };
+  console.log(`[Agent] Voice → "${transcription}" → "${response}"`);
+  res.json({ ok: true, transcription, response });
 });
 
 // ─── Location ───

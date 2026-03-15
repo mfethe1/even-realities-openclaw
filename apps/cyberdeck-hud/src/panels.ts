@@ -1,5 +1,260 @@
 // Additional HUD panels for positional awareness
 
+// ─── Agent Panel Types ───
+export interface AgentState {
+  state: "ready" | "listening" | "thinking" | "responding";
+  lastResponse: string;
+  lastQuery: string;
+  activeAgent: string;
+  teamStatus: { macklemore: string; rosie: string; winnie: string; lenny: string };
+  pendingAlerts: number;
+  timestamp: number;
+}
+
+export interface TelegramMessage {
+  id: number;
+  chat: string;
+  sender: string;
+  text: string;
+  timestamp: number;
+}
+
+// ─── Word-wrap helper ───
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const test = current ? `${current} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+// ─── Agent Panel ───
+export function drawAgentPanel(
+  ctx: CanvasRenderingContext2D,
+  agent: AgentState,
+  W: number,
+  H: number,
+  topY: number,
+  animFrame: number
+) {
+  const contentY = topY + 4;
+  const contentH = H - topY - 18; // leave room for bottom bar
+  const splitX = Math.floor(W * 0.74);
+  const statusX = splitX + 6;
+  const statusW = W - statusX - 4;
+
+  // ── Divider between conversation and status
+  ctx.strokeStyle = "#444";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(splitX, contentY);
+  ctx.lineTo(splitX, H - 18);
+  ctx.stroke();
+  ctx.strokeStyle = "#fff";
+
+  // ── Left: Conversation area ──────────────────────────────────────────
+  const convX = 8;
+  const convW = splitX - convX - 6;
+
+  if (agent.state === "listening") {
+    // Pulsing dot + LISTENING
+    const pulse = Math.sin(animFrame * 0.3) > 0;
+    ctx.font = "bold 13px monospace";
+    ctx.fillStyle = pulse ? "#0f0" : "#060";
+    ctx.fillText("●", convX, contentY + 16);
+    ctx.fillStyle = "#0f0";
+    ctx.font = "bold 12px monospace";
+    ctx.fillText(" LISTENING...", convX + 16, contentY + 16);
+    ctx.fillStyle = "#fff";
+
+    ctx.font = "10px monospace";
+    ctx.fillStyle = "#555";
+    ctx.fillText("Tap ring to stop", convX, contentY + 34);
+    ctx.fillStyle = "#fff";
+  } else if (agent.state === "thinking") {
+    // Animated dots
+    const dotCount = (Math.floor(animFrame / 8) % 4);
+    const dots = ".".repeat(dotCount + 1);
+    ctx.font = "bold 12px monospace";
+    ctx.fillStyle = "#ff0";
+    ctx.fillText(`Thinking${dots}`, convX, contentY + 16);
+    ctx.fillStyle = "#fff";
+
+    if (agent.lastQuery) {
+      ctx.font = "10px monospace";
+      ctx.fillStyle = "#666";
+      ctx.fillText(`"${agent.lastQuery.slice(0, 55)}"`, convX, contentY + 32);
+      ctx.fillStyle = "#fff";
+    }
+  } else {
+    // READY / RESPONDING — show last response
+    ctx.font = "11px monospace";
+    const respLines = wrapText(ctx, agent.lastResponse || "Ready.", convW);
+    const maxLines = 4;
+    const startLine = Math.max(0, respLines.length - maxLines);
+    const lineH = 14;
+
+    respLines.slice(startLine).forEach((line, i) => {
+      ctx.fillStyle = "#fff";
+      ctx.fillText(line, convX, contentY + 14 + i * lineH);
+    });
+
+    // User's last query (dim, below response if space)
+    if (agent.lastQuery && respLines.length < maxLines) {
+      const qY = contentY + 14 + Math.min(respLines.length, maxLines) * lineH + 4;
+      if (qY < H - 22) {
+        ctx.font = "9px monospace";
+        ctx.fillStyle = "#555";
+        ctx.fillText(`› ${agent.lastQuery.slice(0, 60)}`, convX, qY);
+        ctx.fillStyle = "#fff";
+      }
+    }
+  }
+
+  // ── Right: Status block ──────────────────────────────────────────────
+  const stateColors: Record<string, string> = {
+    ready: "#0f0",
+    listening: "#0f0",
+    thinking: "#ff0",
+    responding: "#0af",
+  };
+  const stateColor = stateColors[agent.state] || "#fff";
+
+  ctx.font = "bold 10px monospace";
+  ctx.fillStyle = stateColor;
+  const stateLbl = agent.state.toUpperCase();
+  ctx.fillText(stateLbl, statusX, contentY + 12);
+  ctx.fillStyle = "#fff";
+
+  // Active agent name
+  ctx.font = "9px monospace";
+  ctx.fillStyle = "#aaa";
+  ctx.fillText("ACTIVE", statusX, contentY + 26);
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 11px monospace";
+  ctx.fillText(agent.activeAgent.slice(0, 4).toUpperCase(), statusX, contentY + 38);
+
+  // Team status dots
+  ctx.font = "8px monospace";
+  ctx.fillStyle = "#888";
+  ctx.fillText("TEAM", statusX, contentY + 52);
+
+  const agents: Array<{ key: keyof typeof agent.teamStatus; label: string }> = [
+    { key: "macklemore", label: "M" },
+    { key: "rosie", label: "R" },
+    { key: "winnie", label: "W" },
+    { key: "lenny", label: "L" },
+  ];
+
+  agents.forEach((a, i) => {
+    const dx = statusX + i * (statusW / 4 + 1);
+    const dy = contentY + 64;
+    const active = agent.teamStatus[a.key] === "active";
+    ctx.fillStyle = active ? "#0f0" : "#333";
+    ctx.fillRect(dx, dy - 5, 6, 6);
+    ctx.font = "8px monospace";
+    ctx.fillStyle = active ? "#aaa" : "#444";
+    ctx.fillText(a.label, dx, dy + 8);
+  });
+
+  ctx.fillStyle = "#fff";
+
+  // Pending alerts badge
+  if (agent.pendingAlerts > 0) {
+    ctx.font = "bold 9px monospace";
+    ctx.fillStyle = "#f00";
+    ctx.fillText(`⚠${agent.pendingAlerts}`, statusX, contentY + 86);
+    ctx.fillStyle = "#fff";
+  }
+
+  // ── Bottom bar (agent-specific) ──────────────────────────────────────
+  const bY = H - 14;
+  ctx.font = "9px monospace";
+
+  // Left: tap hint
+  ctx.fillStyle = "#666";
+  ctx.fillText("TAP:talk  HOLD:cmd", 8, bY + 9);
+
+  // Center: panel label
+  const centerLabel = "◀ AGENT ▶";
+  ctx.font = "bold 10px monospace";
+  ctx.fillStyle = "#fff";
+  const lw = ctx.measureText(centerLabel).width;
+  ctx.fillText(centerLabel, W / 2 - lw / 2, bY + 9);
+
+  // Right: mode
+  ctx.font = "bold 9px monospace";
+  ctx.fillStyle = stateColor;
+  const modeStr = agent.state.toUpperCase();
+  const mw = ctx.measureText(modeStr).width;
+  ctx.fillText(modeStr, W - mw - 8, bY + 9);
+  ctx.fillStyle = "#fff";
+}
+
+// ─── Messages Panel ───
+export function drawMessagesPanel(
+  ctx: CanvasRenderingContext2D,
+  messages: TelegramMessage[],
+  W: number,
+  topY: number
+) {
+  const y0 = topY + 4;
+  ctx.font = "bold 11px monospace";
+  ctx.fillStyle = "#0af";
+  ctx.fillText("MESSAGES", 8, y0 + 12);
+  ctx.fillStyle = "#fff";
+
+  if (messages.length === 0) {
+    ctx.font = "10px monospace";
+    ctx.fillStyle = "#555";
+    ctx.fillText("No messages", 8, y0 + 32);
+    ctx.fillStyle = "#fff";
+    return;
+  }
+
+  const maxShow = 5;
+  messages.slice(-maxShow).forEach((msg, i) => {
+    const lineY = y0 + 26 + i * 18;
+    const age = Date.now() - msg.timestamp;
+    const relTime =
+      age < 60000 ? `${Math.floor(age / 1000)}s` :
+      age < 3600000 ? `${Math.floor(age / 60000)}m` :
+      `${Math.floor(age / 3600000)}h`;
+
+    // Sender (bold)
+    ctx.font = "bold 10px monospace";
+    ctx.fillStyle = "#fff";
+    const senderW = ctx.measureText(msg.sender).width;
+    ctx.fillText(msg.sender, 8, lineY);
+
+    // Time (right-aligned)
+    ctx.font = "9px monospace";
+    ctx.fillStyle = "#666";
+    const timeW = ctx.measureText(relTime).width;
+    ctx.fillText(relTime, W - timeW - 8, lineY);
+
+    // Message text (truncated)
+    const textAvail = W - senderW - timeW - 30;
+    ctx.font = "10px monospace";
+    ctx.fillStyle = "#aaa";
+    let truncated = msg.text;
+    while (truncated.length > 4 && ctx.measureText(`: ${truncated}`).width > textAvail) {
+      truncated = truncated.slice(0, -1);
+    }
+    ctx.fillText(`: ${truncated}`, 8 + senderW, lineY);
+    ctx.fillStyle = "#fff";
+  });
+}
+
 // ─── Compass direction label from degrees ───
 function bearingToCompass(deg: number): string {
   const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
