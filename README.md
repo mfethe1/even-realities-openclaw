@@ -9,6 +9,11 @@ Smart glasses + AI agent integration. Plugins for **Even Realities G2** glasses 
 | **telegram-hud** | Read & reply to Telegram messages on glasses. Voice reply via ring tap → Whisper → send. | 🔧 Building |
 | **agent-notifications** | Push OpenClaw agent alerts to HUD (critical/high/normal priority). | 📋 Planned |
 | **voice-command** | Ring tap → speak → Whisper → dispatch to agent → result on HUD. | 📋 Planned |
+| **sms** | Send/receive texts via Twilio. Voice dictation for replies. | 🔧 Building |
+| **email** | Gmail inbox on HUD. Dictate emails, quick reply. | 🔧 Building |
+| **calendar** | Google Calendar — next events + "meeting in X min" widget. | 🔧 Building |
+| **dexcom** | Dexcom CGM glucose readings on HUD. High/low/urgent alerts. | 🔧 Building |
+| **location** | Share GPS with agents. Geofence triggers. Context-aware AI. | 🔧 Building |
 | **data-dashboard** | Rotating HUD widget: stock prices, signals, metrics. | 📋 Planned |
 | **teleprompter** | Push notes/talking points to display. | 📋 Planned |
 
