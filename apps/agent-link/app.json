@@ -1,0 +1,8 @@
+{
+  "appId": "com.protelynx.agent-link",
+  "name": "Agent Link",
+  "version": "0.1.0",
+  "description": "Talk to OpenClaw agents from your glasses + share location",
+  "entry": "index.html",
+  "author": "Protelynx"
+}

@@ -1,0 +1,8 @@
+{
+  "appId": "com.protelynx.health-hud",
+  "name": "Health HUD",
+  "version": "0.1.0",
+  "description": "Dexcom CGM glucose monitoring on Even G2 glasses",
+  "entry": "index.html",
+  "author": "Protelynx"
+}

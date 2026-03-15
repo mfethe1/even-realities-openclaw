@@ -6,56 +6,61 @@ Custom apps for the **Even Realities G2** smart glasses and **R1 ring**, integra
 
 | App | Description | Status |
 |-----|-------------|--------|
-| [Telegram HUD](apps/telegram-hud/) | Send/receive Telegram messages on your glasses | 🚧 In Progress |
-| [OpenClaw Dashboard](apps/openclaw-hud/) | Agent alerts, cron status, notifications | 📋 Planned |
-| [Calendar Glance](apps/calendar-glance/) | Next meeting at a glance | 📋 Planned |
-| [Voice Commander](apps/voice-commander/) | Voice → OpenClaw → action → display | 📋 Planned |
+| [Telegram HUD](apps/telegram-hud/) | Send/receive Telegram messages via voice or ring | 🚧 In Progress |
+| [Agent Link](apps/agent-link/) | Talk to agents via voice, share your location | 🚧 In Progress |
+| [Health HUD](apps/health-hud/) | Dexcom CGM glucose monitoring with alerts | 🚧 In Progress |
+| [Calendar Glance](apps/calendar-glance/) | Today's events at a glance | 🚧 In Progress |
+| Email HUD | Gmail inbox on glasses | 📋 Planned |
+| iMessage/SMS | Text messages via glasses | 📋 Planned |
 
 ## Architecture
 
 ```
-G2 Glasses ←BLE→ Even App (Flutter) ←SDK Bridge→ EvenHub Web App ←HTTP→ Backend ←→ OpenClaw Gateway
-     ↕
-  R1 Ring
+G2 Glasses ←BLE→ Even App (Flutter) ←SDK Bridge→ EvenHub Web Apps ←HTTP→ Backend
+     ↕                                                                      ↕
+  R1 Ring                                                           OpenClaw Gateway
+                                                                     ↕         ↕
+                                                                 Telegram   Agents
+                                                                 Gmail     (Mack/Rosie/
+                                                                 Calendar   Winnie/Lenny)
+                                                                 Dexcom
+                                                                 iMessage
+                                                                 Location
 ```
 
-**EvenHub SDK** — apps are web apps (HTML/CSS/JS) running in a WebView inside the Even mobile app. The SDK provides a TypeScript bridge for display, input, and audio.
+## Features
 
-## Tech Stack
-
-- `@evenrealities/even_hub_sdk` v0.0.7 — TypeScript bridge
-- `@evenrealities/evenhub-cli` v0.1.5 — dev tooling (init, QR sideload, pack)
-- `@evenrealities/evenhub-simulator` v0.4.1 — desktop testing
-- Vite + TypeScript
-- Express backend → OpenClaw Telegram integration
-
-## Display Specs
-- 576×288 monochrome canvas
-- Up to 4 containers/page (text, list, image)
-- Images: 20-200px wide, 20-100px tall, 1-bit
-- Input: TouchBar gestures + R1 ring events
+- **Messaging**: Telegram, iMessage/SMS, email — view on glasses, reply via voice or quick templates
+- **Health**: Dexcom CGM real-time glucose with trend arrows and range alerts
+- **Calendar**: Google Calendar events with ring scrolling
+- **Agent Link**: Voice commands to OpenClaw agents, agents can see your GPS location
+- **R1 Ring**: Scroll, tap, double-tap to navigate all apps
 
 ## Quick Start
 
 ```bash
-# Install EvenHub tools
 npm install -g @evenrealities/evenhub-cli @evenrealities/evenhub-simulator
 
-# Run Telegram HUD
-cd apps/telegram-hud && npm install && npm run dev
+# Pick an app
+cd apps/telegram-hud  # or health-hud, calendar-glance, agent-link
+npm install && npm run dev
 
-# Test in simulator
+# Simulator
 evenhub-simulator http://localhost:5173
 
-# Or sideload to glasses via QR
+# Sideload to glasses
 evenhub qr -p 5173  # scan from Even Hub app
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for full deployment guide.
+## Backend
 
-## Team
+```bash
+cd backend && npm install && npm run dev
+```
 
-Built by the OpenClaw agent team (Macklemore, Rosie, Winnie, Lenny) + Michael.
+Serves all apps on port 3000. In production, deploy to Railway.
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for full guide.
 
 ## License
 

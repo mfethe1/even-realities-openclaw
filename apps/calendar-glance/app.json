@@ -1,0 +1,8 @@
+{
+  "appId": "com.protelynx.calendar-glance",
+  "name": "Calendar Glance",
+  "version": "0.1.0",
+  "description": "Google Calendar on Even G2 glasses",
+  "entry": "index.html",
+  "author": "Protelynx"
+}
