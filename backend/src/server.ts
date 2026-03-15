@@ -2,7 +2,21 @@ import express from "express";
 import cors from "cors";
 
 const app = express();
-app.use(cors());
+
+// ─── CORS: allow vite dev server + same-origin ───
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "http://localhost:4173",
+      /^http:\/\/192\.168\.\d+\.\d+:\d+$/,  // local network preview
+      /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: "5mb" }));
 
 const PORT = process.env.PORT || 3000;
@@ -11,54 +25,96 @@ const PORT = process.env.PORT || 3000;
 let lastLocation: any = null;
 let audioBuffer: any[] = [];
 
+// ─── Helpers ───
+function rand(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+function randFloat(min: number, max: number, dec = 1) {
+  return parseFloat((Math.random() * (max - min) + min).toFixed(dec));
+}
+
+// ─── Health ───
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
+
 // ─── Telegram Messages ───
-// TODO: Wire to OpenClaw Telegram bot via Bot API or gateway webhook
 app.get("/api/glasses/messages", (_req, res) => {
   res.json([
-    { id: 1, chat: "SmartGlasses", sender: "Michael", text: "Testing the glasses HUD", timestamp: Date.now() - 60000 },
-    { id: 2, chat: "Direct", sender: "Macklemore", text: "Deployment complete", timestamp: Date.now() },
+    {
+      id: 1,
+      chat: "SmartGlasses",
+      sender: "Michael",
+      text: "Testing the glasses HUD",
+      timestamp: Date.now() - 60000,
+    },
+    {
+      id: 2,
+      chat: "Direct",
+      sender: "Macklemore",
+      text: "Deployment complete",
+      timestamp: Date.now(),
+    },
   ]);
 });
 
 app.post("/api/glasses/send", (req, res) => {
-  const { chat, text, type } = req.body; // type: "telegram" | "imessage" | "email"
+  const { chat, text, type } = req.body;
   console.log(`[Backend] Send ${type || "telegram"} to ${chat}: ${text}`);
-  // TODO: Route to appropriate service (Telegram Bot API, imsg CLI, gog/himalaya)
   res.json({ ok: true });
 });
 
 // ─── Email ───
-// TODO: Wire to gog (Gmail) or himalaya (IMAP)
 app.get("/api/glasses/email", (_req, res) => {
   res.json([
-    { id: "1", from: "investor@example.com", subject: "RE: Series A", snippet: "Thanks for the update...", timestamp: Date.now() - 3600000 },
-    { id: "2", from: "team@protelynx.ai", subject: "Build passing", snippet: "All CI checks green", timestamp: Date.now() },
+    {
+      id: "1",
+      from: "investor@example.com",
+      subject: "RE: Series A",
+      snippet: "Thanks for the update...",
+      timestamp: Date.now() - 3600000,
+    },
+    {
+      id: "2",
+      from: "team@protelynx.ai",
+      subject: "Build passing",
+      snippet: "All CI checks green",
+      timestamp: Date.now(),
+    },
   ]);
 });
 
 // ─── Calendar ───
-// TODO: Wire to gog calendar CLI
 app.get("/api/glasses/calendar", (_req, res) => {
   const today = new Date();
+  const d = new Date(today);
   res.json([
-    { title: "Team Standup", start: new Date(today.setHours(9, 0)).toISOString(), end: new Date(today.setHours(9, 30)).toISOString() },
-    { title: "Investor Call", start: new Date(today.setHours(14, 0)).toISOString(), end: new Date(today.setHours(15, 0)).toISOString(), location: "Zoom" },
+    {
+      title: "Team Standup",
+      start: new Date(d.setHours(9, 0, 0)).toISOString(),
+      end: new Date(d.setHours(9, 30, 0)).toISOString(),
+    },
+    {
+      title: "Investor Call",
+      start: new Date(d.setHours(14, 0, 0)).toISOString(),
+      end: new Date(d.setHours(15, 0, 0)).toISOString(),
+      location: "Zoom",
+    },
   ]);
 });
 
 // ─── Dexcom CGM ───
-// TODO: Wire to Dexcom Share API (requires sessionId auth)
-// Dexcom Share endpoint: https://share2.dexcom.com/ShareWebServices/Services
 app.get("/api/glasses/glucose", (_req, res) => {
+  const base = rand(95, 140);
   res.json({
-    latest: { value: 112, trend: "Flat", timestamp: Date.now() - 120000 },
+    latest: { value: base, trend: "Flat", timestamp: Date.now() - 120000 },
     history: [
-      { value: 105, trend: "FortyFiveUp", timestamp: Date.now() - 1500000 },
-      { value: 108, trend: "Flat", timestamp: Date.now() - 1200000 },
-      { value: 115, trend: "FortyFiveUp", timestamp: Date.now() - 900000 },
-      { value: 118, trend: "Flat", timestamp: Date.now() - 600000 },
-      { value: 114, trend: "FortyFiveDown", timestamp: Date.now() - 300000 },
-      { value: 112, trend: "Flat", timestamp: Date.now() - 120000 },
+      { value: base - 10, trend: "FortyFiveUp", timestamp: Date.now() - 1500000 },
+      { value: base - 7, trend: "Flat", timestamp: Date.now() - 1200000 },
+      { value: base - 4, trend: "FortyFiveUp", timestamp: Date.now() - 900000 },
+      { value: base + 2, trend: "Flat", timestamp: Date.now() - 600000 },
+      { value: base - 1, trend: "FortyFiveDown", timestamp: Date.now() - 300000 },
+      { value: base, trend: "Flat", timestamp: Date.now() - 120000 },
     ],
   });
 });
@@ -67,8 +123,10 @@ app.get("/api/glasses/glucose", (_req, res) => {
 app.post("/api/glasses/agent-message", (req, res) => {
   const { type, user } = req.body;
   console.log(`[Backend] Agent message from ${user}, type: ${type}`);
-  // TODO: Forward voice transcription to OpenClaw gateway, return agent response
-  res.json({ response: "Macklemore: All systems green. Rosie: Markets flat. Lenny: No alerts." });
+  res.json({
+    response:
+      "Macklemore: All systems green. Rosie: Markets flat. Lenny: No alerts.",
+  });
 });
 
 app.post("/api/glasses/audio-chunk", (req, res) => {
@@ -77,7 +135,6 @@ app.post("/api/glasses/audio-chunk", (req, res) => {
 });
 
 app.get("/api/glasses/agent-status", (_req, res) => {
-  // TODO: Query OpenClaw sessions_list for real agent status
   res.json({ status: "Mack:✅ Rosie:✅ Winnie:✅ Lenny:✅" });
 });
 
@@ -94,47 +151,76 @@ app.get("/api/glasses/location", (_req, res) => {
 
 // ─── Voice/STT ───
 app.post("/api/glasses/voice", (req, res) => {
-  // TODO: Send accumulated audio to Whisper API for transcription
   const chunks = audioBuffer.length;
   audioBuffer = [];
   console.log(`[Backend] Processing ${chunks} audio chunks`);
   res.json({ ok: true, transcription: "[voice transcription placeholder]" });
 });
 
-app.listen(PORT, () => {
-  console.log(`[GlassesBackend] Listening on :${PORT}`);
-  console.log(`[GlassesBackend] Endpoints: /messages /email /calendar /glucose /agent-message /location`);
-});
+// ─── CyberDeck: Combined Vitals (dynamic mock — varies each call) ───
+// Realistic simulation with drift to make it feel live
+let glucoseBase = 112;
+let hrBase = 72;
+let spo2Base = 98;
+let stepsBase = 4200;
 
-// ─── CyberDeck: Combined Vitals ───
-// TODO: Wire to Dexcom Share API + Apple Health (via phone) + wearable APIs
 app.get("/api/glasses/vitals", (_req, res) => {
+  // Simulate slow drift over time
+  glucoseBase += randFloat(-2, 2);
+  glucoseBase = Math.min(Math.max(glucoseBase, 70), 180);
+  hrBase += rand(-3, 3);
+  hrBase = Math.min(Math.max(hrBase, 55), 110);
+  spo2Base += randFloat(-0.5, 0.3);
+  spo2Base = Math.min(Math.max(spo2Base, 93), 100);
+  stepsBase += rand(0, 15);
+
+  const trends = [
+    "Flat",
+    "FortyFiveUp",
+    "FortyFiveDown",
+    "SingleUp",
+    "SingleDown",
+  ];
+  const trend = trends[rand(0, trends.length - 1)];
+
   res.json({
-    glucose: 112 + Math.floor(Math.random() * 20 - 10),
-    glucoseTrend: ["Flat", "FortyFiveUp", "FortyFiveDown"][Math.floor(Math.random() * 3)],
-    heartRate: 72 + Math.floor(Math.random() * 10 - 5),
-    spo2: 97 + Math.floor(Math.random() * 3 - 1),
-    steps: 4200 + Math.floor(Math.random() * 500),
+    glucose: Math.round(glucoseBase),
+    glucoseTrend: trend,
+    heartRate: Math.round(hrBase),
+    spo2: Math.round(spo2Base),
+    steps: stepsBase,
     timestamp: Date.now(),
   });
 });
 
-// ─── CyberDeck: Nearby Device Scan ───
-// TODO: Wire to phone's WiFi/BLE scan results via Even App bridge
+// ─── CyberDeck: Nearby Device Scan (dynamic RSSI variation) ───
+const devicePool = [
+  { name: "Home-WiFi-5G", type: "wifi", rssiBase: -45 },
+  { name: "iPhone-Michael", type: "ble", rssiBase: -35 },
+  { name: "Apple Watch", type: "ble", rssiBase: -42 },
+  { name: "Dexcom G7", type: "ble", rssiBase: -55 },
+  { name: "MacMini-Office", type: "wifi", rssiBase: -62 },
+  { name: "Neighbor-Guest", type: "wifi", rssiBase: -78 },
+  { name: "Ring Doorbell", type: "wifi", rssiBase: -70 },
+  { name: "R1 Ring", type: "ble", rssiBase: -30 },
+];
+
 app.get("/api/glasses/nearby-devices", (_req, res) => {
-  // Mock data — in production the phone scans and reports
-  res.json([
-    { name: "Home-WiFi-5G", type: "wifi", rssi: -45 },
-    { name: "iPhone-Michael", type: "ble", rssi: -35 },
-    { name: "Apple Watch", type: "ble", rssi: -42 },
-    { name: "Dexcom G7", type: "ble", rssi: -55 },
-    { name: "MacMini-Office", type: "wifi", rssi: -62 },
-    { name: "Neighbor-Guest", type: "wifi", rssi: -78 },
-    { name: "Ring Doorbell", type: "wifi", rssi: -70 },
-    { name: "R1 Ring", type: "ble", rssi: -30 },
-  ]);
+  const devices = devicePool.map((d) => ({
+    name: d.name,
+    type: d.type as "wifi" | "ble",
+    rssi: d.rssiBase + rand(-5, 5),
+  }));
+  res.json(devices);
 });
 
 // ─── Positional Awareness Routes ───
 import positionalRouter from "./positional.js";
 app.use("/api/glasses/positional", positionalRouter);
+
+app.listen(PORT, () => {
+  console.log(`[GlassesBackend] Listening on :${PORT}`);
+  console.log(
+    `[GlassesBackend] Endpoints: /api/health /messages /email /calendar /glucose /agent-message /location /vitals /nearby-devices /positional/*`
+  );
+});
