@@ -1,0 +1,8 @@
+{
+  "appId": "com.protelynx.cyberdeck-hud",
+  "name": "CyberDeck HUD",
+  "version": "0.1.0",
+  "description": "Futuristic heads-up display with health vitals, surroundings awareness, and ring control",
+  "entry": "index.html",
+  "author": "Protelynx"
+}

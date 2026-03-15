@@ -105,3 +105,32 @@ app.listen(PORT, () => {
   console.log(`[GlassesBackend] Listening on :${PORT}`);
   console.log(`[GlassesBackend] Endpoints: /messages /email /calendar /glucose /agent-message /location`);
 });
+
+// ─── CyberDeck: Combined Vitals ───
+// TODO: Wire to Dexcom Share API + Apple Health (via phone) + wearable APIs
+app.get("/api/glasses/vitals", (_req, res) => {
+  res.json({
+    glucose: 112 + Math.floor(Math.random() * 20 - 10),
+    glucoseTrend: ["Flat", "FortyFiveUp", "FortyFiveDown"][Math.floor(Math.random() * 3)],
+    heartRate: 72 + Math.floor(Math.random() * 10 - 5),
+    spo2: 97 + Math.floor(Math.random() * 3 - 1),
+    steps: 4200 + Math.floor(Math.random() * 500),
+    timestamp: Date.now(),
+  });
+});
+
+// ─── CyberDeck: Nearby Device Scan ───
+// TODO: Wire to phone's WiFi/BLE scan results via Even App bridge
+app.get("/api/glasses/nearby-devices", (_req, res) => {
+  // Mock data — in production the phone scans and reports
+  res.json([
+    { name: "Home-WiFi-5G", type: "wifi", rssi: -45 },
+    { name: "iPhone-Michael", type: "ble", rssi: -35 },
+    { name: "Apple Watch", type: "ble", rssi: -42 },
+    { name: "Dexcom G7", type: "ble", rssi: -55 },
+    { name: "MacMini-Office", type: "wifi", rssi: -62 },
+    { name: "Neighbor-Guest", type: "wifi", rssi: -78 },
+    { name: "Ring Doorbell", type: "wifi", rssi: -70 },
+    { name: "R1 Ring", type: "ble", rssi: -30 },
+  ]);
+});
