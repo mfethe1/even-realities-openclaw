@@ -1,0 +1,28 @@
+{
+  "name": "even-realities-openclaw",
+  "version": "1.0.0",
+  "description": "Even Realities G2 smart glasses and R1 ring integration with OpenClaw",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "tsc && vite build",
+    "pack": "npm run build && echo 'TODO: package as .ehpk'",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mfethe1/even-realities-openclaw.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mfethe1/even-realities-openclaw/issues"
+  },
+  "homepage": "https://github.com/mfethe1/even-realities-openclaw#readme",
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "^0.0.7",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0"
+  }
+}
