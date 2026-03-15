@@ -4,11 +4,13 @@ import {
   drawAirQualityPanel,
   drawPOIPanel,
   drawAircraftPanel,
+  drawRadarPanel,
   type WeatherData,
   type AirQuality,
   type POI,
   type Aircraft,
   type LocationInfo,
+  type SpatialData,
 } from "./panels.js";
 
 // ─── G2 Display Constants ───
@@ -42,17 +44,18 @@ interface PositionalData {
   location?: LocationInfo;
 }
 
-// Panel indices
+// Panel indices — RADAR inserted at index 1, others shifted right
 const PANEL_VITALS = 0;
-const PANEL_SCAN = 1;
-const PANEL_ALERTS = 2;
-const PANEL_WEATHER = 3;
-const PANEL_AIR = 4;
-const PANEL_POI = 5;
-const PANEL_AIRCRAFT = 6;
-const TOTAL_PANELS = 7;
+const PANEL_RADAR = 1;
+const PANEL_SCAN = 2;
+const PANEL_ALERTS = 3;
+const PANEL_WEATHER = 4;
+const PANEL_AIR = 5;
+const PANEL_POI = 6;
+const PANEL_AIRCRAFT = 7;
+const TOTAL_PANELS = 8;
 
-const PANEL_LABELS = ["VITALS", "SCAN", "ALERTS", "WEATHER", "AIR", "POI", "AIRCRAFT"];
+const PANEL_LABELS = ["VITALS", "RADAR", "SCAN", "ALERTS", "WEATHER", "AIR", "POI", "AIRCRAFT"];
 
 interface HUDState {
   vitals: Vitals;
@@ -62,6 +65,8 @@ interface HUDState {
   battery: number;
   activePanel: number;
   positional: PositionalData;
+  spatial: SpatialData;
+  webHeadingOverride: number | null; // A/D key simulated heading in web mode
   webMode: boolean; // true when Even Hub bridge is not available
 }
 
@@ -81,6 +86,8 @@ let state: HUDState = {
   battery: 100,
   activePanel: PANEL_VITALS,
   positional: {},
+  spatial: { heading: 0, devices: [] },
+  webHeadingOverride: null,
   webMode: true,
 };
 
@@ -130,6 +137,15 @@ function drawHUD() {
     case PANEL_VITALS:
       drawVitalsPanel();
       break;
+    case PANEL_RADAR: {
+      // Apply web-mode heading override (A/D keys) on top of backend heading
+      const spatialForDraw: SpatialData =
+        state.webHeadingOverride !== null
+          ? { ...state.spatial, heading: state.webHeadingOverride }
+          : state.spatial;
+      drawRadarPanel(ctx, spatialForDraw, DISPLAY_W, DISPLAY_H, 22);
+      break;
+    }
     case PANEL_SCAN:
       drawSurroundingsPanel();
       break;
@@ -439,9 +455,10 @@ function renderWebPreview() {
 // ─── Fetch all data from backend ───
 async function fetchAll() {
   try {
-    const [vitalsRes, devicesRes] = await Promise.all([
+    const [vitalsRes, devicesRes, spatialRes] = await Promise.all([
       fetch(`${API_BASE}/api/glasses/vitals`).catch(() => null),
       fetch(`${API_BASE}/api/glasses/nearby-devices`).catch(() => null),
+      fetch(`${API_BASE}/api/glasses/spatial-scan`).catch(() => null),
     ]);
 
     if (vitalsRes?.ok) {
@@ -455,6 +472,9 @@ async function fetchAll() {
     }
     if (devicesRes?.ok) {
       state.devices = await devicesRes.json();
+    }
+    if (spatialRes?.ok) {
+      state.spatial = await spatialRes.json();
     }
   } catch (e) {
     console.error("[CyberDeck] Fetch failed:", e);
@@ -499,7 +519,24 @@ function navigatePrev() {
 // ─── Web Preview Interactivity: keyboard + touch ───
 function setupWebInteractivity() {
   // Keyboard: left/right arrow keys to navigate panels
+  // A/D keys to rotate simulated heading when on RADAR panel
   document.addEventListener("keydown", (e) => {
+    // A/D: rotate heading simulation (only affects RADAR panel display)
+    if (e.key === "a" || e.key === "A") {
+      e.preventDefault();
+      const base = state.webHeadingOverride ?? state.spatial.heading;
+      state.webHeadingOverride = ((base - 10) % 360 + 360) % 360;
+      pushToGlasses();
+      return;
+    }
+    if (e.key === "d" || e.key === "D") {
+      e.preventDefault();
+      const base = state.webHeadingOverride ?? state.spatial.heading;
+      state.webHeadingOverride = (base + 10) % 360;
+      pushToGlasses();
+      return;
+    }
+
     switch (e.key) {
       case "ArrowRight":
       case "ArrowDown":
@@ -590,7 +627,7 @@ function setupWebPreviewDOM() {
   const helpBar = document.createElement("div");
   helpBar.style.cssText =
     "font-size: 10px; color: #444; margin-top: 10px; letter-spacing: 1px;";
-  helpBar.textContent = "← → Arrow keys to switch panels  |  Space/Click to refresh  |  Swipe on mobile";
+  helpBar.textContent = "← → Arrow keys to switch panels  |  A/D rotate heading (RADAR)  |  Space/Click to refresh  |  Swipe on mobile";
   appEl.appendChild(helpBar);
 
   // Bridge status indicator

@@ -1,5 +1,11 @@
 // Additional HUD panels for positional awareness
 
+// ─── Compass direction label from degrees ───
+function bearingToCompass(deg: number): string {
+  const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+  return dirs[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+}
+
 export interface WeatherData {
   temp: number;
   feelsLike: number;
@@ -124,4 +130,178 @@ export function drawAircraftPanel(ctx: CanvasRenderingContext2D, planes: Aircraf
     const dy = cy + Math.sin(rad) * 18;
     ctx.fillRect(dx - 2, dy - 2, 4, 4);
   });
+}
+
+// ─── Radar Panel ───────────────────────────────────────────────────────────
+export interface SpatialDevice {
+  name: string;
+  type: "wifi" | "ble";
+  rssi: number;
+  bearing: number;   // absolute bearing (0=N, 90=E, etc.)
+  distance: number;  // metres
+}
+
+export interface SpatialData {
+  heading: number;         // current compass heading
+  devices: SpatialDevice[];
+}
+
+/**
+ * drawRadarPanel — compass-locked 180° forward-arc spatial radar.
+ *
+ * Canvas layout (576 × 136, white-on-black, monospace):
+ *   Row 0-16 : header bar  "RADAR    HDG: 247° WSW"
+ *   Row 17-110: half-circle arc with concentric rings + device dots
+ *   Row 111-136: "VIS:N/M devices  [edge arrow indicators]"
+ *
+ * Device coordinate mapping:
+ *   relBearing = (absoluteBearing - heading + 360) % 360
+ *   If relBearing ≤ 180  → inside 180° FOV, plot on arc
+ *   Else                 → behind user, show edge arrow
+ *
+ * Arc geometry (half-circle opening downward so "forward" = top-centre):
+ *   angle = relBearing mapped to [-90°..+90°] → canvas radians
+ *   radius = log-scale mapped to ring radii [25m max → innerRadius]
+ */
+export function drawRadarPanel(
+  ctx: CanvasRenderingContext2D,
+  spatial: SpatialData,
+  W: number,
+  H: number,
+  y0: number
+) {
+  const { heading, devices } = spatial;
+
+  // ── Header bar ──────────────────────────────────────────────────────────
+  ctx.font = "bold 12px monospace";
+  ctx.fillText("RADAR", 12, y0 + 14);
+  const compass = bearingToCompass(heading);
+  const hdgLabel = `HDG: ${heading}°  ${compass}`;
+  const hdgW = ctx.measureText(hdgLabel).width;
+  ctx.font = "11px monospace";
+  ctx.fillText(hdgLabel, W - hdgW - 12, y0 + 14);
+
+  // Separator
+  ctx.beginPath();
+  ctx.moveTo(8, y0 + 18);
+  ctx.lineTo(W - 8, y0 + 18);
+  ctx.stroke();
+
+  // ── Radar geometry ──────────────────────────────────────────────────────
+  // Arc centre near bottom of the usable area; arc opens upward (user looks forward = up)
+  const contentH = H - y0 - 28; // space for content between header and footer
+  const arcRadius = Math.min(contentH - 4, (W - 80) / 2); // max radius fits the panel
+  const cx = W / 2;
+  const cy = y0 + 18 + arcRadius + 4; // centre sits below header line
+
+  // Distance rings (metres) mapped to pixel radii
+  const distRings = [2, 5, 10, 25];
+  const maxDistM = 25;
+
+  function distToRadius(d: number): number {
+    // Log scale: 1m → ~15% of arcRadius, 25m → 100%
+    const clamped = Math.min(d, maxDistM);
+    return (Math.log(clamped + 1) / Math.log(maxDistM + 1)) * arcRadius;
+  }
+
+  // Draw concentric distance rings (half arcs opening upward)
+  ctx.save();
+  ctx.setLineDash([3, 4]);
+  distRings.forEach((dm) => {
+    const r = distToRadius(dm);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI, 2 * Math.PI); // half-circle opening upward
+    ctx.stroke();
+
+    // Distance label at bottom-left of ring
+    ctx.font = "8px monospace";
+    ctx.fillStyle = "#888";
+    ctx.fillText(`${dm}m`, cx - r - 1, cy + 10);
+    ctx.fillStyle = "#fff";
+  });
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Main 180° arc
+  ctx.beginPath();
+  ctx.arc(cx, cy, arcRadius, Math.PI, 2 * Math.PI);
+  ctx.stroke();
+
+  // Centre cross-hair (small)
+  ctx.beginPath();
+  ctx.moveTo(cx - 5, cy);
+  ctx.lineTo(cx + 5, cy);
+  ctx.moveTo(cx, cy - 5);
+  ctx.lineTo(cx, cy + 2);
+  ctx.stroke();
+
+  // Forward direction tick at top of arc
+  ctx.fillRect(cx - 1, cy - arcRadius - 4, 2, 6);
+  ctx.font = "8px monospace";
+  ctx.fillText("FWD", cx - 9, cy - arcRadius - 7);
+
+  // ── Plot devices ────────────────────────────────────────────────────────
+  const visible: SpatialDevice[] = [];
+  const behind: SpatialDevice[] = [];
+
+  devices.forEach((d) => {
+    const rel = ((d.bearing - heading) % 360 + 360) % 360; // 0-359
+    if (rel <= 180) {
+      visible.push({ ...d, bearing: rel }); // store relative bearing for drawing
+    } else {
+      behind.push(d);
+    }
+  });
+
+  // Draw visible devices on arc
+  visible.forEach((d) => {
+    // Map 0° (forward) → top-centre, 90° right → right, -90°/270° left → left
+    // relBearing 0..180 → canvas angle: -90° + relBearing = -90° to +90°
+    const relDeg = d.bearing; // already relative (0=forward, 90=right, 180=directly behind edge)
+    const canvasAngle = (relDeg - 90) * (Math.PI / 180); // -π/2 to +π/2
+    const r = distToRadius(d.distance);
+
+    const dx = cx + Math.cos(canvasAngle) * r;
+    const dy = cy + Math.sin(canvasAngle) * r;
+
+    // Dot
+    ctx.fillRect(dx - 3, dy - 3, 6, 6);
+
+    // Label: truncated name + type icon
+    const icon = d.type === "wifi" ? "W" : "B";
+    const label = `${icon}:${d.name.slice(0, 8)}`;
+    ctx.font = "8px monospace";
+
+    // Position label so it doesn't go off-canvas
+    let lx = dx + 5;
+    let ly = dy - 4;
+    if (lx + 60 > W - 8) lx = dx - 65;
+    if (ly < y0 + 20) ly = dy + 12;
+    ctx.fillText(label, lx, ly);
+  });
+
+  // ── Edge arrows for behind-you devices ──────────────────────────────────
+  const leftCount = behind.filter((d) => {
+    const rel = ((d.bearing - heading) % 360 + 360) % 360;
+    return rel > 180 && rel <= 270; // more left than right
+  }).length;
+  const rightCount = behind.length - leftCount;
+
+  const footerY = H - 8;
+  ctx.font = "10px monospace";
+
+  if (leftCount > 0) {
+    ctx.fillText(`←${leftCount}`, 12, footerY);
+  }
+  if (rightCount > 0) {
+    ctx.fillText(`${rightCount}→`, W - 30, footerY);
+  }
+
+  // ── Footer: device count ────────────────────────────────────────────────
+  const countLabel = `VIS: ${visible.length}/${devices.length} devices`;
+  const clW = ctx.measureText(countLabel).width;
+  ctx.font = "9px monospace";
+  ctx.fillStyle = "#aaa";
+  ctx.fillText(countLabel, cx - clW / 2, footerY);
+  ctx.fillStyle = "#fff";
 }

@@ -24,6 +24,9 @@ const PORT = process.env.PORT || 3000;
 // ─── State ───
 let lastLocation: any = null;
 let audioBuffer: any[] = [];
+let latestHeading: number | null = null;
+let headingSetAt: number = 0;
+const serverStartTime = Date.now();
 
 // ─── Helpers ───
 function rand(min: number, max: number) {
@@ -214,6 +217,68 @@ app.get("/api/glasses/nearby-devices", (_req, res) => {
   res.json(devices);
 });
 
+// ─── Spatial / Heading ───
+
+// POST /api/glasses/heading — phone sends compass reading
+app.post("/api/glasses/heading", (req, res) => {
+  const { heading, accuracy } = req.body;
+  if (typeof heading === "number") {
+    latestHeading = heading;
+    headingSetAt = Date.now();
+    console.log(`[Backend] Heading update: ${heading}° (accuracy: ${accuracy})`);
+  }
+  res.json({ ok: true });
+});
+
+// Simple string hash → consistent 0-359 bearing per device name
+function nameToBearing(name: string): number {
+  let h = 5381;
+  for (let i = 0; i < name.length; i++) {
+    h = ((h << 5) + h) ^ name.charCodeAt(i);
+    h = h >>> 0; // keep unsigned 32-bit
+  }
+  return h % 360;
+}
+
+// RSSI → distance estimate
+function rssiToDistance(rssi: number, type: "wifi" | "ble"): number {
+  const txPower = type === "ble" ? -59 : -30;
+  const n = 2.5;
+  const dist = Math.pow(10, (txPower - rssi) / (10 * n));
+  return parseFloat(dist.toFixed(1));
+}
+
+// Slowly drifting mock heading (simulates user walking around)
+function getMockHeading(): number {
+  const elapsed = (Date.now() - serverStartTime) / 1000; // seconds
+  // Drift at ~12°/s cycle (full rotation every 30s)
+  return Math.round((elapsed * 12) % 360);
+}
+
+// GET /api/glasses/spatial-scan
+app.get("/api/glasses/spatial-scan", (_req, res) => {
+  // Use phone-provided heading if fresh (< 10s old), else drift
+  const heading =
+    latestHeading !== null && Date.now() - headingSetAt < 10000
+      ? latestHeading
+      : getMockHeading();
+
+  const devices = devicePool.map((d) => ({
+    name: d.name,
+    type: d.type as "wifi" | "ble",
+    rssi: d.rssiBase + rand(-5, 5),
+    bearing: nameToBearing(d.name),
+    distance: rssiToDistance(d.rssiBase + rand(-5, 5), d.type as "wifi" | "ble"),
+  }));
+
+  res.json({ heading, devices });
+});
+
+// GET /api/glasses/uwb-scan — future UWB stub
+app.get("/api/glasses/uwb-scan", (_req, res) => {
+  res.json({ supported: false, devices: [] });
+});
+
 // ─── Positional Awareness Routes ───
 import positionalRouter from "./positional.js";
 app.use("/api/glasses/positional", positionalRouter);
@@ -221,6 +286,6 @@ app.use("/api/glasses/positional", positionalRouter);
 app.listen(PORT, () => {
   console.log(`[GlassesBackend] Listening on :${PORT}`);
   console.log(
-    `[GlassesBackend] Endpoints: /api/health /messages /email /calendar /glucose /agent-message /location /vitals /nearby-devices /positional/*`
+    `[GlassesBackend] Endpoints: /api/health /messages /email /calendar /glucose /agent-message /location /vitals /nearby-devices /heading /spatial-scan /uwb-scan /positional/*`
   );
 });
